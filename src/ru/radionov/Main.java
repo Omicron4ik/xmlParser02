@@ -23,20 +23,29 @@ import java.util.ArrayList;
 public class Main {
 
     private static ArrayList<Device> deviceList = new ArrayList<>();
+    static int n = 0, limit = 10;
 
     public static void main(String[] args) throws ParserConfigurationException, SAXException, Exception {
         String filePath = args[0];
         String baseUrl = args[1];
         String apiKey = args[2];
+        String resultFile = args[3];
         String url = "";
         String geocoded = "";
+        //parsing config
         SAXParserFactory saxParserFactory = SAXParserFactory.newInstance();
         SAXParser parser = saxParserFactory.newSAXParser();
         XMLConfigHandler configHandler = new XMLConfigHandler();
         parser.parse(new File(filePath), configHandler);
 
-        HttpConnection httpConnection = new HttpConnection();
+        //creating result file
+        File deviceCoordsFile = new File(resultFile);
+        if (deviceCoordsFile.exists()) deviceCoordsFile.delete();
+        deviceCoordsFile.createNewFile();
+        Path deviceCoordsPath = Paths.get(deviceCoordsFile.getPath());
 
+        //geocoding addresses
+        HttpConnection httpConnection = new HttpConnection();
         for (Device device: deviceList) {
             url = baseUrl + "?apikey=" + apiKey + "&geocode=" + URLEncoder.encode(device.getAddress());
             geocoded = httpConnection.sendGet(url);
@@ -50,14 +59,15 @@ public class Main {
             device.setLon(geoHandler.lon);
             device.setLat(geoHandler.lat);
             device.setPrecision(geoHandler.precision);
-
             String result = String.format("Id = %s, addres = %s, lon = %s, lat = %s, precision = %s   \n", device.getId(),device.getAddress(),device.getLon(),device.getLat(),device.getPrecision());
 
-            File deviceCoordsFile = new File("C:\\Games\\DeviceCoords.txt");
-            Path deviceCoordsPath = Paths.get(deviceCoordsFile.getPath());
             Files.write(deviceCoordsPath,result.getBytes(),StandardOpenOption.APPEND);
+            n++;
+            if (limit != -1 && n >= limit) {
+                System.out.println("Limit requests is " + limit + ". Process stopped. Set limit to -1 to encode all");
+                break;
+            }
         }
-
     }
 
     public static class HttpConnection {
@@ -73,6 +83,7 @@ public class Main {
             connection.setRequestProperty("User-Agent",userAgent);
 
             int responseCode = connection.getResponseCode();
+
             System.out.println("Sending 'GET' request to URL: " + url);
             System.out.println("Response code:  " + responseCode);
 
