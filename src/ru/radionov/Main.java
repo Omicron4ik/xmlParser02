@@ -32,6 +32,7 @@ public class Main {
         String resultFile = args[3];
         String url = "";
         String geocoded = "";
+
         //parsing config
         SAXParserFactory saxParserFactory = SAXParserFactory.newInstance();
         SAXParser parser = saxParserFactory.newSAXParser();
