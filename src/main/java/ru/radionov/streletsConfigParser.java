@@ -7,10 +7,8 @@ import org.xml.sax.helpers.DefaultHandler;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
-import java.io.BufferedReader;
-import java.io.File;
-
-import java.io.InputStreamReader;
+import java.io.*;
+import java.math.BigInteger;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -20,16 +18,19 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 
-public class Main {
+public class streletsConfigParser {
 
     private static ArrayList<Device> deviceList = new ArrayList<>();
-    static int n = 0, limit = 10;
+    private static ArrayList<Device> validDeviceList = new ArrayList<>();
+    private static ArrayList<Device> inValidDeviceList = new ArrayList<>();
+    static int n = 0;
 
     public static void main(String[] args) throws ParserConfigurationException, SAXException, Exception {
-        String filePath = args[0];
-        String baseUrl = args[1];
-        String apiKey = args[2];
-        String resultFile = args[3];
+
+        properties properties = new properties();
+        properties.loadConfig();
+
+        int limit = Integer.parseInt(properties.getLimit());
         String url = "";
         String geocoded = "";
 
@@ -37,38 +38,41 @@ public class Main {
         SAXParserFactory saxParserFactory = SAXParserFactory.newInstance();
         SAXParser parser = saxParserFactory.newSAXParser();
         XMLConfigHandler configHandler = new XMLConfigHandler();
-        parser.parse(new File(filePath), configHandler);
-
-        //creating result file
-        File deviceCoordsFile = new File(resultFile);
-        if (deviceCoordsFile.exists()) deviceCoordsFile.delete();
-        deviceCoordsFile.createNewFile();
-        Path deviceCoordsPath = Paths.get(deviceCoordsFile.getPath());
+        parser.parse(new File(properties.getConfigFile()), configHandler);
 
         //geocoding addresses
         HttpConnection httpConnection = new HttpConnection();
         for (Device device: deviceList) {
-            url = baseUrl + "?apikey=" + apiKey + "&geocode=" + URLEncoder.encode(device.getAddress());
-            geocoded = httpConnection.sendGet(url);
+            if (device.getAddress() != null) {
+                url = properties.getBaseUrl() + "?apikey=" + properties.getApiKey() + "&geocode=" + URLEncoder.encode(device.getAddress());
+                geocoded = httpConnection.sendGet(url);
 
-            File tmpFile = File.createTempFile("geo",null);
-            Path geoFile = Paths.get(tmpFile.getPath());
-            Files.write(geoFile,geocoded.getBytes(),StandardOpenOption.APPEND);
+                File tmpFile = File.createTempFile("geo", null);
+                Path geoFile = Paths.get(tmpFile.getPath());
+                Files.write(geoFile, geocoded.getBytes(), StandardOpenOption.APPEND);
 
-            XMLGeocodingHanler geoHandler = new XMLGeocodingHanler(device.getAddress());
-            parser.parse(tmpFile, geoHandler);
-            device.setLon(geoHandler.lon);
-            device.setLat(geoHandler.lat);
-            device.setPrecision(geoHandler.precision);
-            String result = String.format("Id = %s, addres = %s, lon = %s, lat = %s, precision = %s   \n", device.getId(),device.getAddress(),device.getLon(),device.getLat(),device.getPrecision());
-
-            Files.write(deviceCoordsPath,result.getBytes(),StandardOpenOption.APPEND);
+                XMLGeocodingHanler geoHandler = new XMLGeocodingHanler(device.getAddress());
+                parser.parse(tmpFile, geoHandler);
+                device.setLon(geoHandler.lon);
+                device.setLat(geoHandler.lat);
+                device.setPrecision(geoHandler.precision);
+            }
             n++;
+            // limiter for yandex.api
             if (limit != -1 && n >= limit) {
-                System.out.println("Limit requests is " + limit + ". Process stopped. Set limit to -1 to encode all");
+                System.out.println("Limit requests is " + limit + ". Process stopped. Set limit to -1 in config.properties to encode all");
                 break;
             }
         }
+        for (Device device : deviceList) {
+            if (device.getPrecision() != null && device.getPrecision().equals("exact")) {
+                validDeviceList.add(device);
+            } else {
+                inValidDeviceList.add(device);
+            }
+        }
+        mdmCreating.fillmdm(validDeviceList,properties.getPositiveResultFile());
+        mdmCreating.fillmdm(inValidDeviceList,properties.getNevativeResultFile());
     }
 
     public static class HttpConnection {
@@ -143,7 +147,8 @@ public class Main {
 
     public static class XMLConfigHandler extends DefaultHandler {
 
-        private String curElement,deviceId,deviceAddress;
+        private String curElement,deviceId,deviceAddress,deviceName;
+        private Boolean thatObject;
 
         @Override
         public void startDocument() throws SAXException {
@@ -155,30 +160,37 @@ public class Main {
             curElement = qName;
             if (curElement != null && curElement.equals("GuardObject")) {
                 deviceId = attributes.getValue("Id");
+                thatObject = true;
             }
         }
 
         @Override
         public void characters(char[] ch, int start, int length) throws SAXException {
-            if (curElement != null && curElement.equals("Description")) {
-                deviceAddress = new String(ch,start,length);
-                int AddrStart = deviceAddress.indexOf("<Address>");
-                int AddrFinish = deviceAddress.indexOf("</Address>");
-                if (AddrStart != -1) {
-                    deviceAddress = deviceAddress.substring(AddrStart+9, AddrFinish);
-                } else System.out.println("No address for id " + deviceId);
-                deviceList.add(new Device(deviceId,deviceAddress));
-
+            if (curElement != null) {
+                if (curElement.equals("Name") && thatObject) {
+                    deviceName = new String(ch, start, length);
+                } else if (curElement.equals("Description") && thatObject) {
+                    deviceAddress = new String(ch, start, length);
+                    int AddrStart = deviceAddress.indexOf("<Address>");
+                    int AddrFinish = deviceAddress.indexOf("</Address>");
+                    if (AddrStart != -1) {
+                        deviceAddress = deviceAddress.substring(AddrStart + 9, AddrFinish);
+                    } else {
+                        System.out.println("No address for id " + deviceId);
+                        deviceAddress = null;
+                    }
+                    // Fix and reset device info
+                    deviceList.add(new Device(deviceId, deviceAddress,deviceName));
+                    deviceName = null;
+                    deviceId = null;
+                    deviceAddress = null;
+                    thatObject = false;
+                }
             }
         }
 
         @Override
         public void endElement(String uri, String localName, String qName) throws SAXException {
-            if (qName.equals("Description")) {
-                //System.out.println("Saved device: id=" + deviceId + " address=" + deviceAddress);
-                deviceId = null;
-                deviceAddress = null;
-            }
             curElement = null;
         }
 
@@ -187,4 +199,5 @@ public class Main {
             System.out.println("Config pasred!");
         }
     }
+
 }

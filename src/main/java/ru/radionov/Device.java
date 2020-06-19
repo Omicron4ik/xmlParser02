@@ -1,15 +1,12 @@
 package ru.radionov;
 
 public class Device {
-    private String address,id,lat,lon,precision;
+    private String name,address,id,lat,lon,precision;
 
-    public Device (String id) {
-        this.id = id;
-    }
-
-    public Device (String id, String address) {
+    public Device (String id, String address, String name) {
         this.id = id;
         this.address = address;
+        this.name = name;
     }
 
     public String getAddress() {
@@ -50,5 +47,13 @@ public class Device {
 
     public void setPrecision(String precision) {
         this.precision = precision;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 }
